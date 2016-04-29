@@ -1,0 +1,73 @@
+- hosts: all
+  vars:
+      tomcat_ver: 8.0.32
+      tomcat_dir: /sysapp
+      tomcat_ins: int
+  sudo: yes
+
+  tasks:
+
+
+    - name: Creer groupe tomcat
+      group: name=tomcat gid=45 state=present system=yes
+
+    - name: Creer user tomcat
+      user: name=tomcat comment="John Doe" uid=45 group=tomcat system=yes
+
+    - name: Verif que tomcat est la
+      stat: path={{ tomcat_dir }}/apache-tomcat-{{ tomcat_ver }}/bin/catalina.sh
+      register: core
+
+    - name: download tomcat
+      get_url:
+       url=http://archive.apache.org/dist/tomcat/tomcat-8/v{{ tomcat_ver}}/bin/apache-tomcat-{{ tomcat_ver}}.tar.gz
+       dest=/tmp/apache-tomcat-{{ tomcat_ver }}.tar.gz
+      when: core.stat.exists is defined and core.stat.exists == False
+
+    - name: Extraction de Tomcat
+      command: chdir={{ tomcat_dir }} tar xvf /tmp/apache-tomcat-{{ tomcat_ver }}.tar.gz creates={{ tomcat_dir}}/apache-tomcat-{{ tomcat_ver }}
+      when: core.stat.exists is defined and core.stat.exists == False
+
+    - name: Create symlink
+      file: src={{ tomcat_dir }}/apache-tomcat-{{ tomcat_ver }} dest={{ tomcat_dir }}/tomcat state=link
+
+    - name: Test si le tomcat instance est la
+      stat: path={{ tomcat_dir }}/tomcat-instances/{{ tomcat_ins }}/tomcat/conf/server.xml
+      register: instance
+
+    - name: Create log directory
+      file: path=/var/log/tomcat/{{ tomcat_ins }} state=directory mode=0755
+
+    - name: Create directories
+      file: path={{ tomcat_dir }}/tomcat-instances/{{ tomcat_ins }}/{{ item }} state=directory mode=0755
+      with_items:
+         - "config"
+         - "tomcat"
+
+    - name: Create instance
+      command: cp -R {{ tomcat_dir }}/tomcat/{{ item }} {{ tomcat_dir }}/tomcat-instances/{{ tomcat_ins }}/tomcat/
+      with_items:
+         - "conf"
+         - "webapps"
+         - "work"
+      when: instance.stat.exists is defined and instance.stat.exists == False
+ 
+    - name: Create directories in instance
+      file: path={{ tomcat_dir }}/tomcat-instances/{{ tomcat_ins }}/tomcat/{{ item }} state=directory mode=0755
+      with_items:
+        - "temp"
+        - "bin"
+        - "lib"
+
+    - name: Change ownership of Tomcat installation
+      file: path={{ tomcat_dir }}/tomcat-instances/ owner=tomcat group=tomcat state=directory recurse=yes
+
+    - name: Change ownership of Tomcat installation
+      file: path={{ tomcat_dir }}/apache-tomcat-{{ tomcat_ver}} owner=tomcat group=tomcat state=directory recurse=yes
+
+    - name: Change ownership of Tomcat installation
+      file: path=/var/log/tomcat/{{ tomcat_ins}} owner=tomcat group=tomcat state=directory recurse=yes
+
+    - name: Create symlink
+      file: src=/var/log/tomcat/{{ tomcat_ins }} dest={{ tomcat_dir }}/tomcat-instances/{{ tomcat_ins }}/tomcat/logs state=link
+      when: instance.stat.exists is defined and instance.stat.exists == False
