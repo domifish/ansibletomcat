@@ -11,8 +11,9 @@
       uid: 1142
 
 - hosts: all
+  roles:
+     - role: jre
   vars:
-      jre_ver:     "8"
       tc_ver:      8.0.32
       tc_eng_dir:  /sysapp/tomcat-engine
       tc_jre_dir:  /sysapp/tomcat-jre
@@ -26,37 +27,73 @@
       inst_dir:    /sysapp/tomcat-instances/{{ dom }}-{{ farm }}{{ node }}{ {supp }}-{{ env }}
       log_dir:     /var/log/tomcat/instances/{{ inst }}
       logapp_dir:  /var/log/tomcat/apps/{{ inst }}
+      jre_dir:     "{{ tc_jre_dir }}/jre_1.{{ jre_oracle_version }}"
 		
   sudo: yes
 
   tasks:
 
-
-    - name: Creer groupe tomcat
+# System Prerequisites
+---
+    - name: "System | Create tomcat group"
       group: name=tec-tomcat gid=1146 state=present system=yes
 
-    - name: Creer user tomcat
+    - name: "System | Create tomcat user "
       user: name=tec-tomcat comment="John Doe" uid=1146 group=tec-tomcat system=yes
 
-    - name: Creer user tomcat specifique environnemt
+    - name: "System | Create tomcat specific env user "
       user: name={{ user }} comment="John Doe" uid={{ uid }} group=tec-tomcat system=yes
 
-    - name: Verif que tomcat est la
+# Install Oracle JRE
+---
+    - name: "Oracle | Ensure JRE directories for tomcat already exists"
+      file: path= "{{ tc_jre_dir }}" state= directory
+
+    - name: "Oracle | Check JRE install"
+      stat: "path={{ jre_dir }}/bin"
+      register: jre_oracle_bin
+
+    - name: "Oracle | download JRE tarball"
+    uri:
+      url: "{{ jre_oracle_download_url }}"
+      HEADER_Referer: "{{ jre_oracle_download_referrer }}"
+      HEADER_Cookie: "{{ jre_oracle_download_cookie }}"
+      dest: "{{ jre_oracle_download_dest }}"
+    when: not jre_oracle_bin.stat.exists
+
+
+    - name: "Oracle | untar JRE to des directory"
+      command: tar xvf {{ jre_oracle_download_dest }} -C {{ jre_dir }} --strip-components=1
+      args:
+      creates: "{{ jre_dir }}/bin"
+      when: not jre_oracle_bin.stat.exists
+
+    - name: "Oracle | default link"
+      link: "{{ tc_jre_dir }}/default"
+      path: "{{ jre_dir }}"
+
+
+# Install Tomcat Engine
+---
+    - name: "Tomcat | Ensure Tomcat directories already exist"
       stat: path={{ tc_eng_dir }}/apache-tomcat-{{ tc_ver }}/bin/catalina.sh
       register: core
 
-    - name: download tomcat
+    - name: "Tomcat | download tarball"
       get_url:
        url=http://archive.apache.org/dist/tomcat/tomcat-8/v{{ tc_ver}}/bin/apache-tomcat-{{ tc_ver}}.tar.gz
        dest=/tmp/apache-tomcat-{{ tc_ver }}.tar.gz
       when: core.stat.exists is defined and core.stat.exists == False
 
-    - name: Extraction de Tomcat
+    - name: "Tomcat | untar Tomcat do destination directory"
       command: chdir={{ tc_eng_dir }} tar xvf /tmp/apache-tomcat-{{ tc_ver }}.tar.gz creates={{ tc_eng_dir}}/apache-tomcat-{{ tc_ver }}
       when: core.stat.exists is defined and core.stat.exists == False
 
-    - name: Create symlink
+    - name: "Tomcat | Create symlink "
       file: src={{ tc_eng_dir }}/apache-tomcat-{{ tomcat_ver }} dest={{ tc_eng_dir }}/default state=link
+
+# Create Tomcat Instances
+---
 
     - name: Test si l instance est la
       stat: path={{ inst_dir }}/conf/server.xml
@@ -95,6 +132,9 @@
         - "temp"
         - "bin"
         - "lib"
+
+# Manage Rights
+---
 
     - name: Change ownership of Tomcat installation
       file: path={{ tomcat_dir }}/tomcat-instances/ owner=tomcat group=tomcat state=directory recurse=yes
